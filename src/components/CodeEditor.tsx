@@ -1,19 +1,42 @@
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useEffect, useMemo } from "react";
 import Editor from "@monaco-editor/react";
 import * as monaco from "monaco-editor";
+import { formatHoverMarkdown } from "@/lib/valueRenderer";
+
+interface CodeEditorLogEntry {
+  key: string;
+  value: unknown;
+  timestamp: number;
+}
 
 interface CodeEditorProps {
   value: string;
   onChange: (value: string | undefined) => void;
   height?: string;
+  logs?: CodeEditorLogEntry[];
+  showInlineLogs?: boolean;
 }
 
 const CodeEditor: React.FC<CodeEditorProps> = ({
   value,
   onChange,
   height = "400px",
+  logs = [],
+  showInlineLogs = true,
 }) => {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const decorationsRef = useRef<string[]>([]);
+
+  // Compute latest value per key for concise rendering
+  const latestByKey = useMemo(() => {
+    const map = new Map<string, CodeEditorLogEntry>();
+    for (const entry of logs) {
+      const existing = map.get(entry.key);
+      if (!existing || existing.timestamp < entry.timestamp)
+        map.set(entry.key, entry);
+    }
+    return map;
+  }, [logs]);
 
   // Handle window resize for responsive editor
   useEffect(() => {
@@ -63,7 +86,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
 
     const viemDtsFiles: Record<string, string> = (import.meta as any).glob(
       "/node_modules/viem/_types/**/*.d.ts",
-      { as: "raw", eager: true }
+      { query: "?raw", import: "default", eager: true }
     );
     for (const [path, source] of Object.entries(viemDtsFiles)) {
       monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
@@ -75,7 +98,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
     // Also include the TypeScript sources so module paths like 'viem/chains' resolve fully
     const viemTsFiles: Record<string, string> = (import.meta as any).glob(
       "/node_modules/viem/_types/**/*.ts",
-      { as: "raw", eager: true }
+      { query: "?raw", import: "default", eager: true }
     );
     for (const [path, source] of Object.entries(viemTsFiles)) {
       monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
@@ -101,7 +124,11 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
     // Generate wrappers for every subpath that has an index.ts under _types
     const viemSubmoduleIndexFiles: Record<string, string> = (
       import.meta as any
-    ).glob("/node_modules/viem/_types/**/index.ts", { as: "raw", eager: true });
+    ).glob("/node_modules/viem/_types/**/index.ts", {
+      query: "?raw",
+      import: "default",
+      eager: true,
+    });
     Object.keys(viemSubmoduleIndexFiles).forEach((absPath) => {
       const prefix = "/node_modules/viem/_types/";
       const suffix = "/index.ts";
@@ -122,7 +149,8 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
     const viemSubmoduleIndexDtsFiles: Record<string, string> = (
       import.meta as any
     ).glob("/node_modules/viem/_types/**/index.d.ts", {
-      as: "raw",
+      query: "?raw",
+      import: "default",
       eager: true,
     });
     Object.keys(viemSubmoduleIndexDtsFiles).forEach((absPath) => {
@@ -147,6 +175,83 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
       "file:///types/runtime-globals.d.ts"
     );
   };
+
+  // Locate a reasonable line for a variable key in the current source
+  const findLineForKey = (source: string, key: string): number | null => {
+    if (!key) return null;
+    const lines = source.split(/\n/);
+    const escaped = key.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+    const declRegex = new RegExp(
+      String.raw`\b(?:const|let|var)\b[^\n;]*\b${escaped}\b\s*=`,
+      "i"
+    );
+    const assignRegex = new RegExp(String.raw`\b${escaped}\b\s*=`, "i");
+    let candidate: number | null = null;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (declRegex.test(line) || assignRegex.test(line)) candidate = i + 1;
+    }
+    if (candidate) return candidate;
+    // fallback: first mention
+    const wordRegex = new RegExp(String.raw`\b${escaped}\b`, "i");
+    for (let i = 0; i < lines.length; i++) {
+      if (wordRegex.test(lines[i])) return i + 1;
+    }
+    return null;
+  };
+
+  // Update glyph margin markers when code/logs change
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    const model = editor.getModel();
+    if (!model) return;
+
+    // Remove previous decorations
+    decorationsRef.current = model.deltaDecorations(decorationsRef.current, []);
+
+    if (!showInlineLogs || latestByKey.size === 0) return;
+
+    const decorations: monaco.editor.IModelDeltaDecoration[] = [];
+
+    for (const [key, entry] of latestByKey.entries()) {
+      const lineNumber = findLineForKey(model.getValue(), key);
+      if (!lineNumber) continue;
+
+      const hover = formatHoverMarkdown(entry.value);
+
+      decorations.push({
+        range: new monaco.Range(lineNumber, 1, lineNumber, 1),
+        options: {
+          isWholeLine: false,
+          glyphMarginClassName: "inline-log-glyph",
+          glyphMarginHoverMessage: [{ value: `**${key}**` }, { value: hover }],
+        },
+      });
+    }
+
+    decorationsRef.current = model.deltaDecorations(
+      decorationsRef.current,
+      decorations
+    );
+  }, [value, latestByKey, showInlineLogs]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      const editor = editorRef.current;
+      if (!editor) return;
+      const model = editor.getModel();
+      if (!model) return;
+      try {
+        decorationsRef.current = model.deltaDecorations(
+          decorationsRef.current,
+          []
+        );
+      } catch {}
+    };
+  }, []);
 
   return (
     <div className="h-full border border-gray-300 rounded-lg overflow-hidden">

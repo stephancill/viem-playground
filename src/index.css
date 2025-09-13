@@ -118,3 +118,15 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Monaco glyph marker for inline logs */
+.monaco-editor .inline-log-glyph {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><circle cx='6' cy='6' r='4' fill='%2393c5fd' stroke='%231f2937' stroke-width='1.5'/></svg>");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 10px 10px;
+  opacity: 0.95;
+}
+.monaco-editor .inline-log-glyph:hover {
+  filter: brightness(1.15);
+}

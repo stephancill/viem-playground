@@ -1,4 +1,5 @@
 import React from "react";
+import ValueRenderer from "@/lib/valueRenderer";
 
 interface LogEntry {
   key: string;
@@ -17,22 +18,6 @@ const ConsolePanel: React.FC<ConsolePanelProps> = ({
   isVisible = true,
   onClear,
 }) => {
-  const formatValue = (value: unknown): string => {
-    try {
-      if (value === null) return "null";
-      if (value === undefined) return "undefined";
-      if (typeof value === "string") return `"${value}"`;
-      if (typeof value === "bigint") return `${value}n`;
-      if (value instanceof Error) return `Error: ${value.message}`;
-      if (typeof value === "object") {
-        return JSON.stringify(value, null, 2);
-      }
-      return String(value);
-    } catch {
-      return "[Circular or non-serializable value]";
-    }
-  };
-
   const formatTimestamp = (timestamp: number): string => {
     return new Date(timestamp).toLocaleTimeString();
   };
@@ -83,7 +68,7 @@ const ConsolePanel: React.FC<ConsolePanelProps> = ({
                     </span>
                   </div>
                   <div className="text-green-300 whitespace-pre-wrap break-all">
-                    {formatValue(log.value)}
+                    <ValueRenderer value={log.value} variant="full" />
                   </div>
                 </div>
               </div>
