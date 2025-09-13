@@ -192,7 +192,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
     );
 
     // Configure additional editor features for better auto-import experience
-    monacoInstance.languages.typescript.typescriptDefaults.setIncludePackageJsonAutoImports('auto');
+    // Note: setIncludePackageJsonAutoImports is not available in this Monaco version
     
     // Add some common Node.js types for better auto-imports
     monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
@@ -345,53 +345,14 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
             showIssues: true,
             showUsers: true,
             showWords: true,
-            showText: true,
-            showCustomcolors: true,
-            showColor: true,
-            showFile: true,
-            showReference: true,
-            showFolder: true,
-            showTypeParameter: true,
-            showIssue: true,
-            showUser: true,
-            showWord: true,
-            showSnippet: true,
-            showFunction: true,
-            showConstructor: true,
-            showField: true,
-            showVariable: true,
-            showClass: true,
-            showStruct: true,
-            showInterface: true,
-            showModule: true,
-            showProperty: true,
-            showEvent: true,
-            showOperator: true,
-            showUnit: true,
-            showValue: true,
-            showConstant: true,
-            showEnum: true,
-            showEnumMember: true,
-            showCustomcolor: true,
             insertMode: "insert",
             filterGraceful: true,
             showIcons: true,
-            maxVisibleSuggestions: 12,
-            insertSpaces: true,
-            snippetSuggestions: "top",
             localityBonus: true,
             shareSuggestSelections: false,
             snippetsPreventQuickSuggestions: true,
-            filterCharacters: true,
             showMethods: true,
-            showMethod: true,
           },
-          // Enable auto-imports
-          "editor.autoImport": true,
-          "editor.importSuggestions.enabled": true,
-          "editor.importSuggestions.showCurrentNamespace": true,
-          "editor.importSuggestions.showModules": true,
-          "editor.importSuggestions.showAutoImports": true,
         }}
         theme="vs-dark"
       />
