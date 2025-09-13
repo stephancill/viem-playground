@@ -100,9 +100,9 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
       noSuggestionDiagnostics: false,
     });
 
-    // Extract viem functions dynamically from type definitions
+    // Extract viem functions dynamically from type definitions with correct import paths
     const extractViemFunctions = () => {
-      const functions = new Set<string>();
+      const functionMap = new Map<string, string>(); // function name -> import path
       
       // Get all the viem type files we've loaded
       const viemTypeFiles = [
@@ -112,18 +112,32 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
         ...Object.keys(viemSubmoduleIndexDtsFiles)
       ];
 
-      // Extract function names from type definitions
+      // Extract function names from type definitions with their import paths
       viemTypeFiles.forEach(filePath => {
         const content = viemDtsFiles[filePath] || viemTsFiles[filePath] || 
                        viemSubmoduleIndexFiles[filePath] || viemSubmoduleIndexDtsFiles[filePath];
         
         if (content) {
+          // Determine the import path based on file location
+          let importPath = 'viem'; // default to main viem
+          
+          if (filePath.includes('/_types/')) {
+            // Extract submodule from path like /_types/accounts/index.d.ts
+            const submoduleMatch = filePath.match(/\/_types\/([^\/]+)\//);
+            if (submoduleMatch) {
+              const submodule = submoduleMatch[1];
+              importPath = `viem/${submodule}`;
+            }
+          }
+
           // Match function declarations and exports
           const functionMatches = content.match(/(?:export\s+)?(?:declare\s+)?function\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(/g);
           if (functionMatches) {
             functionMatches.forEach(match => {
               const funcName = match.match(/function\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(/)?.[1];
-              if (funcName) functions.add(funcName);
+              if (funcName) {
+                functionMap.set(funcName, importPath);
+              }
             });
           }
 
@@ -132,7 +146,9 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
           if (constFunctionMatches) {
             constFunctionMatches.forEach(match => {
               const funcName = match.match(/export\s+const\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*:/)?.[1];
-              if (funcName) functions.add(funcName);
+              if (funcName) {
+                functionMap.set(funcName, importPath);
+              }
             });
           }
 
@@ -145,7 +161,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
                 const exportNames = exports.split(',').map(name => name.trim().split(' as ')[0].trim());
                 exportNames.forEach(name => {
                   if (name && /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(name)) {
-                    functions.add(name);
+                    functionMap.set(name, importPath);
                   }
                 });
               }
@@ -154,7 +170,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
         }
       });
 
-      return Array.from(functions).sort();
+      return functionMap;
     };
 
     // Configure Monaco to show import suggestions for global functions
@@ -168,19 +184,19 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
           endColumn: word.endColumn,
         };
 
-        // Get viem functions dynamically
-        const viemFunctions = extractViemFunctions();
+        // Get viem functions with their correct import paths
+        const viemFunctionMap = extractViemFunctions();
         const suggestions: monaco.languages.CompletionItem[] = [];
 
-        viemFunctions.forEach(func => {
-          if (func.toLowerCase().includes(word.word.toLowerCase())) {
+        viemFunctionMap.forEach((importPath, funcName) => {
+          if (funcName.toLowerCase().includes(word.word.toLowerCase())) {
             suggestions.push({
-              label: func,
+              label: funcName,
               kind: monaco.languages.CompletionItemKind.Function,
-              insertText: func,
+              insertText: funcName,
               range: range,
-              detail: 'viem function',
-              documentation: `Import from 'viem': import { ${func} } from 'viem'`,
+              detail: `viem function (from ${importPath})`,
+              documentation: `Import from '${importPath}': import { ${funcName} } from '${importPath}'`,
               additionalTextEdits: [{
                 range: {
                   startLineNumber: 1,
@@ -188,7 +204,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
                   endLineNumber: 1,
                   endColumn: 1,
                 },
-                text: `import { ${func} } from 'viem';\n`
+                text: `import { ${funcName} } from '${importPath}';\n`
               }]
             });
           }
@@ -291,8 +307,8 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
 
     // Create dynamic global viem declarations based on extracted functions
     const createGlobalViemDeclarations = () => {
-      const functions = extractViemFunctions();
-      const globalDeclarations = functions.map(func => 
+      const functionMap = extractViemFunctions();
+      const globalDeclarations = Array.from(functionMap.keys()).map(func => 
         `function ${func}(...args: any[]): any;`
       ).join('\n        ');
       
