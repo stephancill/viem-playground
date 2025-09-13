@@ -100,6 +100,64 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
       noSuggestionDiagnostics: false,
     });
 
+    // Configure Monaco to show import suggestions for global functions
+    monacoInstance.languages.registerCompletionItemProvider('typescript', {
+      provideCompletionItems: (model, position) => {
+        const word = model.getWordUntilPosition(position);
+        const range = {
+          startLineNumber: position.lineNumber,
+          endLineNumber: position.lineNumber,
+          startColumn: word.startColumn,
+          endColumn: word.endColumn,
+        };
+
+        // Check if we're suggesting a viem function that needs to be imported
+        const suggestions: monaco.languages.CompletionItem[] = [];
+        
+        // Add viem function suggestions with import actions
+        const viemFunctions = [
+          'createPublicClient', 'createWalletClient', 'createTestClient', 'createContractClient',
+          'formatEther', 'parseEther', 'formatGwei', 'parseGwei',
+          'keccak256', 'sha256', 'encodePacked', 'encodeAbiParameters', 'decodeAbiParameters',
+          'encodeFunctionData', 'decodeFunctionData', 'getAddress', 'isAddress', 'isHex',
+          'toHex', 'fromHex', 'stringToHex', 'hexToString', 'numberToHex', 'hexToNumber',
+          'toRlp', 'fromRlp', 'encodeRlp', 'decodeRlp', 'getContractAddress',
+          'verifyMessage', 'verifyTypedData', 'recoverAddress', 'recoverTypedDataAddress',
+          'contractEns', 'ensContract', 'blockExplorer', 'blockExplorerApi',
+          'multicall3', 'multicall3Contract', 'maxUint256', 'maxUint128', 'maxUint64',
+          'maxUint32', 'maxUint16', 'maxUint8', 'maxInt256', 'maxInt128', 'maxInt64',
+          'maxInt32', 'maxInt16', 'maxInt8', 'minInt256', 'minInt128', 'minInt64',
+          'minInt32', 'minInt16', 'minInt8', 'zeroAddress', 'zeroHash',
+          'pad', 'padUint', 'padBytes', 'trim', 'slice', 'sliceBytes',
+          'concat', 'concatBytes', 'concatHex'
+        ];
+
+        viemFunctions.forEach(func => {
+          if (func.toLowerCase().includes(word.word.toLowerCase())) {
+            suggestions.push({
+              label: func,
+              kind: monaco.languages.CompletionItemKind.Function,
+              insertText: func,
+              range: range,
+              detail: 'viem function',
+              documentation: `Import from 'viem': import { ${func} } from 'viem'`,
+              additionalTextEdits: [{
+                range: {
+                  startLineNumber: 1,
+                  startColumn: 1,
+                  endLineNumber: 1,
+                  endColumn: 1,
+                },
+                text: `import { ${func} } from 'viem';\n`
+              }]
+            });
+          }
+        });
+
+        return { suggestions };
+      }
+    });
+
     const viemDtsFiles: Record<string, string> = (import.meta as any).glob(
       "/node_modules/viem/_types/**/*.d.ts",
       { query: "?raw", import: "default", eager: true }
@@ -189,6 +247,81 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
     monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
       `declare global { function __log(key: string, value: any): void; function getInput(key: string): Promise<any>; } export {};`,
       "file:///types/runtime-globals.d.ts"
+    );
+
+    // Add global viem declarations for auto-import suggestions
+    monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+      `declare global {
+        function createPublicClient(args: any): any;
+        function createWalletClient(args: any): any;
+        function createTestClient(args: any): any;
+        function createContractClient(args: any): any;
+        function formatEther(wei: bigint): string;
+        function parseEther(ether: string): bigint;
+        function formatGwei(gwei: bigint): string;
+        function parseGwei(gwei: string): bigint;
+        function keccak256(input: string): string;
+        function sha256(input: string): string;
+        function encodePacked(types: string[], values: any[]): string;
+        function encodeAbiParameters(params: any[], values: any[]): string;
+        function decodeAbiParameters(params: any[], data: string): any[];
+        function encodeFunctionData(fn: any, args: any[]): string;
+        function decodeFunctionData(fn: any, data: string): any[];
+        function getAddress(address: string): string;
+        function isAddress(address: string): boolean;
+        function isHex(hex: string): boolean;
+        function toHex(value: any): string;
+        function fromHex(hex: string, to: 'number' | 'bigint' | 'bytes'): any;
+        function stringToHex(value: string): string;
+        function hexToString(hex: string): string;
+        function numberToHex(value: number): string;
+        function hexToNumber(hex: string): number;
+        function toRlp(value: any): string;
+        function fromRlp(rlp: string): any;
+        function encodeRlp(values: any[]): string;
+        function decodeRlp(rlp: string): any[];
+        function getContractAddress(tx: any): string;
+        function verifyMessage(message: string, signature: string): string;
+        function verifyTypedData(typedData: any, signature: string): string;
+        function recoverAddress(message: string, signature: string): string;
+        function recoverTypedDataAddress(typedData: any, signature: string): string;
+        function contractEns(name: string): string;
+        function ensContract(contract: string): string;
+        function blockExplorer(chainId: number): string;
+        function blockExplorerApi(chainId: number): string;
+        function multicall3(chainId: number): string;
+        function multicall3Contract(chainId: number): string;
+        function maxUint256(): bigint;
+        function maxUint128(): bigint;
+        function maxUint64(): bigint;
+        function maxUint32(): bigint;
+        function maxUint16(): bigint;
+        function maxUint8(): bigint;
+        function maxInt256(): bigint;
+        function maxInt128(): bigint;
+        function maxInt64(): bigint;
+        function maxInt32(): bigint;
+        function maxInt16(): bigint;
+        function maxInt8(): bigint;
+        function minInt256(): bigint;
+        function minInt128(): bigint;
+        function minInt64(): bigint;
+        function minInt32(): bigint;
+        function minInt16(): bigint;
+        function minInt8(): bigint;
+        function zeroAddress(): string;
+        function zeroHash(): string;
+        function pad(input: string, size?: number): string;
+        function padUint(input: string, size?: number): string;
+        function padBytes(input: string, size?: number): string;
+        function trim(input: string): string;
+        function slice(input: string, start?: number, end?: number): string;
+        function sliceBytes(input: string, start?: number, end?: number): string;
+        function concat(inputs: string[]): string;
+        function concatBytes(inputs: string[]): string;
+        function concatHex(inputs: string[]): string;
+      } export {};`,
+      "file:///types/viem-globals.d.ts"
     );
 
     // Configure additional editor features for better auto-import experience
