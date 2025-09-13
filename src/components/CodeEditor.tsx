@@ -82,6 +82,22 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
         "viem/*": ["node_modules/viem/*/index.d.ts"],
       },
       typeRoots: ["node_modules/@types"],
+      // Enhanced options for auto-imports
+      allowSyntheticDefaultImports: true,
+      resolveJsonModule: true,
+      skipLibCheck: true,
+      strict: false,
+      // Enable better import resolution
+      allowImportingTsExtensions: true,
+      noImplicitAny: false,
+    });
+
+    // Configure editor options for better auto-import experience
+    monacoInstance.languages.typescript.typescriptDefaults.setEagerModelSync(true);
+    monacoInstance.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+      noSemanticValidation: false,
+      noSyntaxValidation: false,
+      noSuggestionDiagnostics: false,
     });
 
     const viemDtsFiles: Record<string, string> = (import.meta as any).glob(
@@ -173,6 +189,20 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
     monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
       `declare global { function __log(key: string, value: any): void; function getInput(key: string): Promise<any>; } export {};`,
       "file:///types/runtime-globals.d.ts"
+    );
+
+    // Configure additional editor features for better auto-import experience
+    monacoInstance.languages.typescript.typescriptDefaults.setIncludePackageJsonAutoImports('auto');
+    
+    // Add some common Node.js types for better auto-imports
+    monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+      `declare module 'fs' { export * from 'node:fs'; }`,
+      "file:///node_modules/@types/node/fs.d.ts"
+    );
+    
+    monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+      `declare module 'path' { export * from 'node:path'; }`,
+      "file:///node_modules/@types/node/path.d.ts"
     );
   };
 
@@ -276,13 +306,92 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
           glyphMargin: true,
           contextmenu: true,
           mouseWheelZoom: true,
-          quickSuggestions: true,
+          quickSuggestions: {
+            other: true,
+            comments: false,
+            strings: false,
+          },
           parameterHints: {
             enabled: true,
           },
           suggestOnTriggerCharacters: true,
           acceptSuggestionOnEnter: "on",
           tabCompletion: "on",
+          // Auto-import configuration
+          suggest: {
+            showKeywords: true,
+            showSnippets: true,
+            showFunctions: true,
+            showConstructors: true,
+            showFields: true,
+            showVariables: true,
+            showClasses: true,
+            showStructs: true,
+            showInterfaces: true,
+            showModules: true,
+            showProperties: true,
+            showEvents: true,
+            showOperators: true,
+            showUnits: true,
+            showValues: true,
+            showConstants: true,
+            showEnums: true,
+            showEnumMembers: true,
+            showColors: true,
+            showFiles: true,
+            showReferences: true,
+            showFolders: true,
+            showTypeParameters: true,
+            showIssues: true,
+            showUsers: true,
+            showWords: true,
+            showText: true,
+            showCustomcolors: true,
+            showColor: true,
+            showFile: true,
+            showReference: true,
+            showFolder: true,
+            showTypeParameter: true,
+            showIssue: true,
+            showUser: true,
+            showWord: true,
+            showSnippet: true,
+            showFunction: true,
+            showConstructor: true,
+            showField: true,
+            showVariable: true,
+            showClass: true,
+            showStruct: true,
+            showInterface: true,
+            showModule: true,
+            showProperty: true,
+            showEvent: true,
+            showOperator: true,
+            showUnit: true,
+            showValue: true,
+            showConstant: true,
+            showEnum: true,
+            showEnumMember: true,
+            showCustomcolor: true,
+            insertMode: "insert",
+            filterGraceful: true,
+            showIcons: true,
+            maxVisibleSuggestions: 12,
+            insertSpaces: true,
+            snippetSuggestions: "top",
+            localityBonus: true,
+            shareSuggestSelections: false,
+            snippetsPreventQuickSuggestions: true,
+            filterCharacters: true,
+            showMethods: true,
+            showMethod: true,
+          },
+          // Enable auto-imports
+          "editor.autoImport": true,
+          "editor.importSuggestions.enabled": true,
+          "editor.importSuggestions.showCurrentNamespace": true,
+          "editor.importSuggestions.showModules": true,
+          "editor.importSuggestions.showAutoImports": true,
         }}
         theme="vs-dark"
       />
