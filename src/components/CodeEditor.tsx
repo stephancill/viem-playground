@@ -100,6 +100,63 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
       noSuggestionDiagnostics: false,
     });
 
+    // Extract viem functions dynamically from type definitions
+    const extractViemFunctions = () => {
+      const functions = new Set<string>();
+      
+      // Get all the viem type files we've loaded
+      const viemTypeFiles = [
+        ...Object.keys(viemDtsFiles),
+        ...Object.keys(viemTsFiles),
+        ...Object.keys(viemSubmoduleIndexFiles),
+        ...Object.keys(viemSubmoduleIndexDtsFiles)
+      ];
+
+      // Extract function names from type definitions
+      viemTypeFiles.forEach(filePath => {
+        const content = viemDtsFiles[filePath] || viemTsFiles[filePath] || 
+                       viemSubmoduleIndexFiles[filePath] || viemSubmoduleIndexDtsFiles[filePath];
+        
+        if (content) {
+          // Match function declarations and exports
+          const functionMatches = content.match(/(?:export\s+)?(?:declare\s+)?function\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(/g);
+          if (functionMatches) {
+            functionMatches.forEach(match => {
+              const funcName = match.match(/function\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(/)?.[1];
+              if (funcName) functions.add(funcName);
+            });
+          }
+
+          // Match exported const functions
+          const constFunctionMatches = content.match(/export\s+const\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*:/g);
+          if (constFunctionMatches) {
+            constFunctionMatches.forEach(match => {
+              const funcName = match.match(/export\s+const\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*:/)?.[1];
+              if (funcName) functions.add(funcName);
+            });
+          }
+
+          // Match export statements
+          const exportMatches = content.match(/export\s*{\s*([^}]+)\s*}/g);
+          if (exportMatches) {
+            exportMatches.forEach(match => {
+              const exports = match.match(/export\s*{\s*([^}]+)\s*}/)?.[1];
+              if (exports) {
+                const exportNames = exports.split(',').map(name => name.trim().split(' as ')[0].trim());
+                exportNames.forEach(name => {
+                  if (name && /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(name)) {
+                    functions.add(name);
+                  }
+                });
+              }
+            });
+          }
+        }
+      });
+
+      return Array.from(functions).sort();
+    };
+
     // Configure Monaco to show import suggestions for global functions
     monacoInstance.languages.registerCompletionItemProvider('typescript', {
       provideCompletionItems: (model, position) => {
@@ -111,26 +168,9 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
           endColumn: word.endColumn,
         };
 
-        // Check if we're suggesting a viem function that needs to be imported
+        // Get viem functions dynamically
+        const viemFunctions = extractViemFunctions();
         const suggestions: monaco.languages.CompletionItem[] = [];
-        
-        // Add viem function suggestions with import actions
-        const viemFunctions = [
-          'createPublicClient', 'createWalletClient', 'createTestClient', 'createContractClient',
-          'formatEther', 'parseEther', 'formatGwei', 'parseGwei',
-          'keccak256', 'sha256', 'encodePacked', 'encodeAbiParameters', 'decodeAbiParameters',
-          'encodeFunctionData', 'decodeFunctionData', 'getAddress', 'isAddress', 'isHex',
-          'toHex', 'fromHex', 'stringToHex', 'hexToString', 'numberToHex', 'hexToNumber',
-          'toRlp', 'fromRlp', 'encodeRlp', 'decodeRlp', 'getContractAddress',
-          'verifyMessage', 'verifyTypedData', 'recoverAddress', 'recoverTypedDataAddress',
-          'contractEns', 'ensContract', 'blockExplorer', 'blockExplorerApi',
-          'multicall3', 'multicall3Contract', 'maxUint256', 'maxUint128', 'maxUint64',
-          'maxUint32', 'maxUint16', 'maxUint8', 'maxInt256', 'maxInt128', 'maxInt64',
-          'maxInt32', 'maxInt16', 'maxInt8', 'minInt256', 'minInt128', 'minInt64',
-          'minInt32', 'minInt16', 'minInt8', 'zeroAddress', 'zeroHash',
-          'pad', 'padUint', 'padBytes', 'trim', 'slice', 'sliceBytes',
-          'concat', 'concatBytes', 'concatHex'
-        ];
 
         viemFunctions.forEach(func => {
           if (func.toLowerCase().includes(word.word.toLowerCase())) {
@@ -249,78 +289,21 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
       "file:///types/runtime-globals.d.ts"
     );
 
-    // Add global viem declarations for auto-import suggestions
+    // Create dynamic global viem declarations based on extracted functions
+    const createGlobalViemDeclarations = () => {
+      const functions = extractViemFunctions();
+      const globalDeclarations = functions.map(func => 
+        `function ${func}(...args: any[]): any;`
+      ).join('\n        ');
+      
+      return `declare global {
+        ${globalDeclarations}
+      } export {};`;
+    };
+
+    // Add dynamic global viem declarations for auto-import suggestions
     monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
-      `declare global {
-        function createPublicClient(args: any): any;
-        function createWalletClient(args: any): any;
-        function createTestClient(args: any): any;
-        function createContractClient(args: any): any;
-        function formatEther(wei: bigint): string;
-        function parseEther(ether: string): bigint;
-        function formatGwei(gwei: bigint): string;
-        function parseGwei(gwei: string): bigint;
-        function keccak256(input: string): string;
-        function sha256(input: string): string;
-        function encodePacked(types: string[], values: any[]): string;
-        function encodeAbiParameters(params: any[], values: any[]): string;
-        function decodeAbiParameters(params: any[], data: string): any[];
-        function encodeFunctionData(fn: any, args: any[]): string;
-        function decodeFunctionData(fn: any, data: string): any[];
-        function getAddress(address: string): string;
-        function isAddress(address: string): boolean;
-        function isHex(hex: string): boolean;
-        function toHex(value: any): string;
-        function fromHex(hex: string, to: 'number' | 'bigint' | 'bytes'): any;
-        function stringToHex(value: string): string;
-        function hexToString(hex: string): string;
-        function numberToHex(value: number): string;
-        function hexToNumber(hex: string): number;
-        function toRlp(value: any): string;
-        function fromRlp(rlp: string): any;
-        function encodeRlp(values: any[]): string;
-        function decodeRlp(rlp: string): any[];
-        function getContractAddress(tx: any): string;
-        function verifyMessage(message: string, signature: string): string;
-        function verifyTypedData(typedData: any, signature: string): string;
-        function recoverAddress(message: string, signature: string): string;
-        function recoverTypedDataAddress(typedData: any, signature: string): string;
-        function contractEns(name: string): string;
-        function ensContract(contract: string): string;
-        function blockExplorer(chainId: number): string;
-        function blockExplorerApi(chainId: number): string;
-        function multicall3(chainId: number): string;
-        function multicall3Contract(chainId: number): string;
-        function maxUint256(): bigint;
-        function maxUint128(): bigint;
-        function maxUint64(): bigint;
-        function maxUint32(): bigint;
-        function maxUint16(): bigint;
-        function maxUint8(): bigint;
-        function maxInt256(): bigint;
-        function maxInt128(): bigint;
-        function maxInt64(): bigint;
-        function maxInt32(): bigint;
-        function maxInt16(): bigint;
-        function maxInt8(): bigint;
-        function minInt256(): bigint;
-        function minInt128(): bigint;
-        function minInt64(): bigint;
-        function minInt32(): bigint;
-        function minInt16(): bigint;
-        function minInt8(): bigint;
-        function zeroAddress(): string;
-        function zeroHash(): string;
-        function pad(input: string, size?: number): string;
-        function padUint(input: string, size?: number): string;
-        function padBytes(input: string, size?: number): string;
-        function trim(input: string): string;
-        function slice(input: string, start?: number, end?: number): string;
-        function sliceBytes(input: string, start?: number, end?: number): string;
-        function concat(inputs: string[]): string;
-        function concatBytes(inputs: string[]): string;
-        function concatHex(inputs: string[]): string;
-      } export {};`,
+      createGlobalViemDeclarations(),
       "file:///types/viem-globals.d.ts"
     );
 
