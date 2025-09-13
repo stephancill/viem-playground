@@ -8,6 +8,10 @@ export interface LogEntry {
   key: string;
   value: unknown;
   timestamp: number;
+  source?: "console" | "inline" | "system";
+  // For console logs
+  formatted?: string;
+  args?: unknown[];
 }
 
 const DEFAULT_CODE = `import { createPublicClient, http } from 'viem';
@@ -121,8 +125,8 @@ const Playground: React.FC = () => {
             return `${match}\n__log("${name}", ${name});`;
           }
         )
-        // Also transform console.log calls
-        .replace(/console\.log\(([^)]+)\);?/g, '__log("console", $1);');
+        // Also transform console.log calls (preserve multiple args)
+        .replace(/console\.log\(([^)]*)\);?/g, '__log("console", [ $1 ]);');
 
       // Optional: log transformed code in debug mode only
 
@@ -168,9 +172,38 @@ const Playground: React.FC = () => {
           };
           return inner(value, 0);
         };
+        // Basic console format substitution similar to DevTools
+        window.__formatConsole = function(args) {
+          try {
+            if (!args || args.length === 0) return '';
+            const [first, ...rest] = args;
+            if (typeof first !== 'string') return null;
+            let i = 0;
+            const out = first.replace(/%[sdifoOc]/g, (match) => {
+              const next = rest[i++];
+              switch (match) {
+                case '%s': return String(next);
+                case '%d':
+                case '%i': return Number(next).toString();
+                case '%f': return Number(next).toString();
+                case '%o':
+                case '%O': return (typeof next === 'object') ? JSON.stringify(next) : String(next);
+                case '%c': return '';
+                default: return match;
+              }
+            });
+            const remaining = rest.slice(i).map((x) => (typeof x === 'object' ? JSON.stringify(x) : String(x))).join(' ');
+            return remaining ? (out + ' ' + remaining) : out;
+          } catch (_) { return null; }
+        };
+
         window.__log = function(key, value) {
+          const isConsole = key === 'console';
+          const rawArgs = isConsole && Array.isArray(value) ? value : undefined;
+          const formatted = isConsole ? window.__formatConsole(rawArgs) : undefined;
           const safeValue = window.__safeSerialize(value);
-          const log = { key, value: safeValue, timestamp: Date.now() };
+          const safeArgs = rawArgs ? rawArgs.map(window.__safeSerialize) : undefined;
+          const log = { key, value: safeValue, timestamp: Date.now(), source: isConsole ? 'console' : 'inline', formatted, args: safeArgs };
           window.__logs.push(log);
           window.parent.postMessage({ type: 'LOG', payload: log }, '*');
           // Avoid noisy console mirroring for internal keys
@@ -297,7 +330,6 @@ const Playground: React.FC = () => {
             "viem",
             "user-code",
             "success",
-            "console",
             "iframe",
             "error",
           ]);
@@ -399,7 +431,7 @@ const Playground: React.FC = () => {
               value={code}
               onChange={(value) => setCode(value || "")}
               height="100%"
-              logs={logs}
+              logs={logs.filter((l) => l.source === "inline")}
               showInlineLogs={showInlineLogs}
             />
           </div>
@@ -407,7 +439,10 @@ const Playground: React.FC = () => {
 
         {/* Console panel */}
         <div className="w-full md:w-96 h-64 md:h-auto flex flex-col overflow-hidden border-t md:border-t-0 md:border-l border-gray-200 flex-shrink-0">
-          <ConsolePanel logs={logs} onClear={handleClearLogs} />
+          <ConsolePanel
+            logs={logs.filter((l) => l.source === "console")}
+            onClear={handleClearLogs}
+          />
         </div>
       </div>
     </div>

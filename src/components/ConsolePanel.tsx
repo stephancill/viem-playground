@@ -1,11 +1,6 @@
 import React from "react";
-import ValueRenderer from "@/lib/valueRenderer";
-
-interface LogEntry {
-  key: string;
-  value: unknown;
-  timestamp: number;
-}
+import { formatBrief } from "@/lib/valueRenderer";
+import type { LogEntry } from "./Playground";
 
 interface ConsolePanelProps {
   logs: LogEntry[];
@@ -58,18 +53,19 @@ const ConsolePanel: React.FC<ConsolePanelProps> = ({
                 <span className="text-gray-500 text-xs flex-shrink-0">
                   {formatTimestamp(log.timestamp)}
                 </span>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-blue-400 font-semibold">
-                      {log.key}:
-                    </span>
-                    <span className="text-xs text-gray-500">
-                      {typeof log.value}
-                    </span>
-                  </div>
-                  <div className="text-green-300 whitespace-pre-wrap break-all">
-                    <ValueRenderer value={log.value} variant="full" />
-                  </div>
+                <div className="flex-1 min-w-0 text-green-200 whitespace-pre-wrap break-words">
+                  {typeof log.formatted === "string" &&
+                  log.formatted.length > 0 ? (
+                    <span>{log.formatted}</span>
+                  ) : Array.isArray(log.args) && log.args.length > 0 ? (
+                    <div className="flex flex-wrap gap-x-2 gap-y-1">
+                      {log.args.map((arg, i) => (
+                        <span key={i}>{formatBrief(arg)}</span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span>{formatBrief(log.value)}</span>
+                  )}
                 </div>
               </div>
             ))}
