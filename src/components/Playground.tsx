@@ -397,9 +397,9 @@ const Playground: React.FC = () => {
       )}
 
       {/* Main content */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden flex-col md:flex-row">
         {/* Editor panel */}
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-hidden min-w-0 min-h-0">
           <div className="flex-shrink-0 p-2 bg-gray-100 border-b border-gray-200">
             <span className="text-sm font-medium text-gray-700">Editor</span>
           </div>
@@ -415,7 +415,7 @@ const Playground: React.FC = () => {
         </div>
 
         {/* Console panel */}
-        <div className="w-96 flex flex-col overflow-hidden border-l border-gray-200">
+        <div className="w-full md:w-96 h-64 md:h-auto flex flex-col overflow-hidden border-t md:border-t-0 md:border-l border-gray-200 flex-shrink-0">
           <ConsolePanel logs={logs} onClear={handleClearLogs} />
         </div>
       </div>
