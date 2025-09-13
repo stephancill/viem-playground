@@ -2,7 +2,7 @@ import React, { useState, useCallback } from "react";
 import { transpileCode } from "../lib/esbuild";
 import CodeEditor from "./CodeEditor";
 import ConsolePanel from "./ConsolePanel";
-import { Play, Square, RotateCcw, Eye, EyeOff } from "lucide-react";
+import { Play, Square, RotateCcw } from "lucide-react";
 
 export interface LogEntry {
   key: string;
@@ -35,7 +35,7 @@ const Playground: React.FC = () => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showInlineLogs, setShowInlineLogs] = useState(true);
+  const [showInlineLogs] = useState(true);
 
   const handleLog = useCallback((log: LogEntry) => {
     setLogs((prev) => [...prev, log]);
@@ -373,17 +373,8 @@ const Playground: React.FC = () => {
               <RotateCcw size={16} />
               Reset
             </button>
-            <button
-              onClick={() => setShowInlineLogs((v) => !v)}
-              className="flex items-center gap-2 px-3 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300"
-              title={showInlineLogs ? "Hide inline logs" : "Show inline logs"}
-            >
-              {showInlineLogs ? <EyeOff size={16} /> : <Eye size={16} />}
-              {showInlineLogs ? "Hide Inline" : "Show Inline"}
-            </button>
           </div>
         </div>
-        <div className="text-sm text-gray-500">TypeScript + Viem</div>
       </div>
 
       {/* Error banner */}
