@@ -9,15 +9,6 @@ export interface StoredABI {
   updatedAt: Date;
 }
 
-export interface StoredScript {
-  id?: number;
-  name: string;
-  code: string;
-  description?: string;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
 export class ABIDatabase extends Dexie {
   abis!: Dexie.Table<StoredABI, number>;
 
@@ -29,4 +20,25 @@ export class ABIDatabase extends Dexie {
   }
 }
 
+export interface StoredScript {
+  id?: number;
+  name: string;
+  content: string;
+  description?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export class ScriptDatabase extends Dexie {
+  scripts!: Dexie.Table<StoredScript, number>;
+
+  constructor() {
+    super("ScriptDatabase");
+    this.version(1).stores({
+      scripts: "++id, name, createdAt, updatedAt",
+    });
+  }
+}
+
 export const abiDb = new ABIDatabase();
+export const scriptDb = new ScriptDatabase();

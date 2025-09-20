@@ -1,9 +1,10 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { transpileCode } from "../lib/esbuild";
 import CodeEditor from "./CodeEditor";
 import ConsolePanel from "./ConsolePanel";
 import { Play, Square, RotateCcw } from "lucide-react";
-import { abiDb } from "@/lib/abiDatabase";
+import { abiDb, scriptDb } from "@/lib/abiDatabase";
+import type { StoredScript } from "@/lib/abiDatabase";
 
 export interface LogEntry {
   key: string;
@@ -17,9 +18,14 @@ export interface LogEntry {
 
 interface PlaygroundProps {
   abiRefreshKey?: number;
+  currentScript?: StoredScript | null;
 }
 
-const DEFAULT_CODE = `import { createPublicClient, http } from 'viem';
+// Session storage keys
+const CURRENT_SCRIPT_KEY = "viem-playground-current-script";
+const CURRENT_SCRIPT_ID_KEY = "viem-playground-current-script-id";
+
+const getDefaultCode = () => `import { createPublicClient, http } from 'viem';
 import { mainnet } from 'viem/chains';
 
 // Create a public client for Ethereum mainnet
@@ -38,9 +44,65 @@ console.log('Chain ID:', chainId);
 console.log('Gas Price:', gasPrice);
 `;
 
-const Playground: React.FC<PlaygroundProps> = ({ abiRefreshKey = 0 }) => {
+// Helper functions for session storage
+const saveCurrentScript = (code: string) => {
+  try {
+    localStorage.setItem(CURRENT_SCRIPT_KEY, code);
+  } catch (error) {
+    console.error("Failed to save current script:", error);
+  }
+};
+
+const loadCurrentScript = (): string => {
+  try {
+    return localStorage.getItem(CURRENT_SCRIPT_KEY) || getDefaultCode();
+  } catch (error) {
+    console.error("Failed to load current script:", error);
+    return getDefaultCode();
+  }
+};
+
+const saveCurrentScriptId = (scriptId: number | null) => {
+  try {
+    if (scriptId === null) {
+      localStorage.removeItem(CURRENT_SCRIPT_ID_KEY);
+    } else {
+      localStorage.setItem(CURRENT_SCRIPT_ID_KEY, scriptId.toString());
+    }
+  } catch (error) {
+    console.error("Failed to save current script ID:", error);
+  }
+};
+
+const loadCurrentScriptId = (): number | null => {
+  try {
+    const id = localStorage.getItem(CURRENT_SCRIPT_ID_KEY);
+    return id ? parseInt(id, 10) : null;
+  } catch (error) {
+    console.error("Failed to load current script ID:", error);
+    return null;
+  }
+};
+
+const Playground: React.FC<PlaygroundProps> = ({
+  abiRefreshKey = 0,
+  currentScript = null,
+}) => {
   const VERBOSE_LOGS = false;
-  const [code, setCode] = useState(DEFAULT_CODE);
+
+  // Initialize code from script library or session storage
+  const [code, setCode] = useState(() => {
+    if (currentScript?.content) {
+      return currentScript.content;
+    }
+    return loadCurrentScript();
+  });
+
+  // Load saved script ID on initialization
+  const [savedScriptId, setSavedScriptId] = useState<number | null>(() => {
+    return loadCurrentScriptId();
+  });
+
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,6 +111,64 @@ const Playground: React.FC<PlaygroundProps> = ({ abiRefreshKey = 0 }) => {
   const handleLog = useCallback((log: LogEntry) => {
     setLogs((prev) => [...prev, log]);
   }, []);
+
+  // Handle script loading - prioritize script library over session storage
+  useEffect(() => {
+    const loadScriptContent = async () => {
+      if (currentScript) {
+        // Current script from props takes priority
+        setCode(currentScript.content);
+        saveCurrentScriptId(currentScript.id || null);
+      } else if (savedScriptId && !currentScript) {
+        // Load saved script from database if we have an ID but no current script
+        try {
+          const script = await scriptDb.scripts.get(savedScriptId);
+          if (script) {
+            setCode(script.content);
+          } else {
+            // Script no longer exists, clear the saved ID
+            setSavedScriptId(null);
+            saveCurrentScriptId(null);
+            setCode(getDefaultCode());
+          }
+        } catch (error) {
+          console.error("Failed to load saved script:", error);
+          setSavedScriptId(null);
+          saveCurrentScriptId(null);
+          setCode(getDefaultCode());
+        }
+      } else {
+        // No script selected, use session storage or default
+        setCode(getDefaultCode());
+      }
+    };
+
+    loadScriptContent();
+  }, [currentScript, savedScriptId]);
+
+  // Auto-save script content when it changes
+  useEffect(() => {
+    if (currentScript && code !== currentScript.content) {
+      const saveScript = async () => {
+        try {
+          await scriptDb.scripts.update(currentScript.id!, {
+            content: code,
+            updatedAt: new Date(),
+          });
+        } catch (error) {
+          console.error("Failed to save script:", error);
+        }
+      };
+      saveScript();
+    }
+  }, [code, currentScript]);
+
+  // Auto-save to session storage for unsaved changes (when no script is selected)
+  useEffect(() => {
+    if (!currentScript) {
+      saveCurrentScript(code);
+    }
+  }, [code, currentScript]);
 
   const handleError = useCallback((error: Error) => {
     setError(error.message);
@@ -69,74 +189,90 @@ const Playground: React.FC<PlaygroundProps> = ({ abiRefreshKey = 0 }) => {
       // For now, let's use a simpler approach that works with the iframe sandbox
       // We'll improve this later with proper bundling
 
-      // Transform the code to add logging
-      let transformedCode = code
-        // Handle destructuring assignments
-        .replace(
-          /(\b(?:const|let|var)\s*\{\s*([^}]+)\s*\}\s*=\s*([^;]+);)/g,
-          (match, _keyword, vars, rhs) => {
-            const rhsText = String(rhs || "").toLowerCase();
-            if (
-              rhsText.includes("window.viem") ||
-              rhsText.includes(" viem") ||
-              rhsText.includes("viem.")
-            ) {
-              return match; // skip viem destructures
-            }
-            const varList = String(vars)
+      // Transpile user code (TypeScript) to JavaScript via esbuild
+      const compiledUserCode = await transpileCode(code);
+
+      // Extract declared variable names from the original user code only
+      const extractUserVarNames = (src: string): Set<string> => {
+        const names = new Set<string>();
+        try {
+          // Simple declarations: const/let/var foo = ...
+          const declRegex =
+            /\b(?:const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=/g;
+          let m: RegExpExecArray | null;
+          while ((m = declRegex.exec(src))) {
+            names.add(m[1]);
+          }
+          // Destructuring: const { a, b: c } = ...  -> capture a and c
+          const destrRegex = /\b(?:const|let|var)\s*\{([^}]+)\}\s*=\s*[^;\n]+/g;
+          let dm: RegExpExecArray | null;
+          while ((dm = destrRegex.exec(src))) {
+            const inner = dm[1];
+            inner
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean)
+              .forEach((piece) => {
+                // handle aliases like b: c
+                const alias = piece.split(":").map((x) => x.trim());
+                const name = alias[1] || alias[0];
+                if (/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(name)) names.add(name);
+              });
+          }
+        } catch (_) {}
+        return names;
+      };
+
+      const userVarNames = Array.from(extractUserVarNames(code));
+
+      // Instrument the compiled JS, but only for variables declared in the user's source
+      let instrumentedCode = compiledUserCode;
+      if (userVarNames.length > 0) {
+        const nameAlternation = userVarNames
+          .map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+          .join("|");
+        const declAssignRe = new RegExp(
+          String.raw`(\b(?:const|let|var)\s+(${nameAlternation})\s*=\s*[^;]+;)`,
+          "g"
+        );
+        instrumentedCode = instrumentedCode.replace(
+          declAssignRe,
+          (_m, stmt, varName) => `${stmt}\n__log("${varName}", ${varName});`
+        );
+
+        // Destructuring declarations: only log variables in our set
+        const destrRe = new RegExp(
+          String.raw`(\b(?:const|let|var)\s*\{\s*([^}]+)\s*\}\s*=\s*[^;]+;)`,
+          "g"
+        );
+        instrumentedCode = instrumentedCode.replace(
+          destrRe,
+          (_m, stmt, vars) => {
+            const candidates = String(vars)
               .split(",")
               .map((v) => v.trim())
-              .filter(Boolean);
-            let result = match;
-            for (const variable of varList) {
-              if (!variable) continue;
-              result += `\n__log("${variable}", ${variable});`;
-            }
-            return result;
+              .map((piece) => {
+                const alias = piece.split(":").map((x) => x.trim());
+                return alias[1] || alias[0];
+              })
+              .filter(
+                (v) =>
+                  /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(v) &&
+                  userVarNames.includes(v)
+              );
+            const logs = candidates
+              .map((n) => `__log("${n}", ${n});`)
+              .join("\n");
+            return logs ? `${stmt}\n${logs}` : stmt;
           }
-        )
-        // Handle regular variable assignments
-        .replace(
-          /(\b(?:const|let|var)\s+(\w+)\s*=\s*([^;]+);)/g,
-          (match, _full, varName, rhs) => {
-            const name = String(varName);
-            const rhsText = String(rhs || "").toLowerCase();
-            const skipNames = new Set([
-              "createpublicclient",
-              "http",
-              "mainnet",
-              "client",
-            ]);
-            if (skipNames.has(name.toLowerCase())) return match;
-            if (
-              rhsText.includes("window.viem") ||
-              rhsText.includes("createpublicclient(")
-            )
-              return match;
-            return `${match}\n__log("${name}", ${name});`;
-          }
-        )
-        .replace(
-          /(?<!\b(?:const|let|var)\s)(\b(\w+)\s*=\s*([^;]+);)/g,
-          (match, _full, varName) => {
-            const name = String(varName);
-            const skipNames = new Set([
-              "createpublicclient",
-              "http",
-              "mainnet",
-              "client",
-            ]);
-            if (skipNames.has(name.toLowerCase())) return match;
-            return `${match}\n__log("${name}", ${name});`;
-          }
-        )
-        // Also transform console.log calls (preserve multiple args)
-        .replace(/console\.log\(([^)]*)\);?/g, '__log("console", [ $1 ]);');
+        );
+      }
 
-      // Optional: log transformed code in debug mode only
-
-      // Transpile user code (TypeScript) to JavaScript via esbuild
-      const compiledUserCode = await transpileCode(transformedCode);
+      // Convert console.log(...) to structured logs with args preserved
+      instrumentedCode = instrumentedCode.replace(
+        /console\.log\(([^)]*)\);?/g,
+        '__log("console", [ $1 ]);'
+      );
 
       // Get ABIs for runtime injection
       const globalABIs: Record<string, any[]> = {};
@@ -224,6 +360,21 @@ const Playground: React.FC<PlaygroundProps> = ({ abiRefreshKey = 0 }) => {
           }
         };
 
+        // Forward runtime errors to the parent so they appear in the UI
+        window.addEventListener('error', (event) => {
+          try {
+            const message = (event && (event.error && event.error.message)) || event.message || 'Script error';
+            window.parent.postMessage({ type: 'ERROR', payload: message }, '*');
+          } catch (_) {}
+        });
+        window.addEventListener('unhandledrejection', (event) => {
+          try {
+            const reason = event && event.reason;
+            const message = (reason && (reason.message || String(reason))) || 'Unhandled promise rejection';
+            window.parent.postMessage({ type: 'ERROR', payload: message }, '*');
+          } catch (_) {}
+        });
+
         window.__log('script', 'Runtime prelude ready');
       `;
 
@@ -289,7 +440,7 @@ const Playground: React.FC<PlaygroundProps> = ({ abiRefreshKey = 0 }) => {
             // Inject user bundle as ESM (supports top-level await). It will execute immediately.
             const userModule = iframeDoc.createElement("script");
             userModule.type = "module";
-            userModule.textContent = compiledUserCode;
+            userModule.textContent = instrumentedCode;
             iframeDoc.body.appendChild(userModule);
 
             if (VERBOSE_LOGS)
@@ -392,7 +543,13 @@ const Playground: React.FC<PlaygroundProps> = ({ abiRefreshKey = 0 }) => {
   };
 
   const handleReset = () => {
-    setCode(DEFAULT_CODE);
+    if (currentScript) {
+      setCode(currentScript.content);
+    } else {
+      setCode(getDefaultCode());
+      // Clear session storage when resetting to default
+      saveCurrentScript(getDefaultCode());
+    }
     setLogs([]);
     setError(null);
     setIsRunning(false);
@@ -404,6 +561,15 @@ const Playground: React.FC<PlaygroundProps> = ({ abiRefreshKey = 0 }) => {
       <div className="flex items-center justify-between p-4 bg-white border-b border-gray-200">
         <div className="flex items-center gap-4">
           <h1 className="text-xl font-bold text-gray-900">Viem Playground</h1>
+          {currentScript ? (
+            <div className="text-sm text-gray-600 bg-gray-100 px-3 py-1 rounded">
+              {currentScript.name}
+            </div>
+          ) : (
+            <div className="text-sm text-amber-600 bg-amber-50 px-3 py-1 rounded border border-amber-200">
+              Unsaved Changes
+            </div>
+          )}
           <div className="flex items-center gap-2">
             <button
               onClick={handleRun}
