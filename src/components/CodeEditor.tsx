@@ -2,6 +2,8 @@ import React, { useRef, useEffect, useMemo } from "react";
 import Editor from "@monaco-editor/react";
 import * as monaco from "monaco-editor";
 import { formatHoverMarkdown } from "@/lib/valueRenderer";
+import { generateABIGlobals } from "@/lib/abiGlobalsGenerator";
+import { abiDb } from "@/lib/abiDatabase";
 
 interface CodeEditorLogEntry {
   key: string;
@@ -50,7 +52,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  const handleEditorDidMount = (
+  const handleEditorDidMount = async (
     editor: monaco.editor.IStandaloneCodeEditor,
     monacoInstance: typeof monaco
   ) => {
@@ -324,6 +326,51 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
       "file:///types/runtime-globals.d.ts"
     );
 
+    // Add global ABI declarations as literal-typed constants
+    const { globalsDts, files } = await generateABIGlobals();
+    for (const f of files) {
+      monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+        f.content,
+        f.path
+      );
+    }
+    monacoInstance.languages.typescript.typescriptDefaults.addExtraLib(
+      globalsDts,
+      "file:///types/global-abis.d.ts"
+    );
+
+    // Add global ABI name completion (available everywhere)
+    monacoInstance.languages.registerCompletionItemProvider("typescript", {
+      provideCompletionItems: async (model, position) => {
+        const word = model.getWordUntilPosition(position);
+        const range = {
+          startLineNumber: position.lineNumber,
+          endLineNumber: position.lineNumber,
+          startColumn: word.startColumn,
+          endColumn: word.endColumn,
+        };
+        const suggestions: monaco.languages.CompletionItem[] = [];
+
+        // Get all stored ABIs for autocomplete
+        const abis = await abiDb.abis.toArray();
+
+        abis.forEach((abi) => {
+          if (abi.name.toLowerCase().includes(word.word.toLowerCase())) {
+            suggestions.push({
+              label: abi.name,
+              kind: monaco.languages.CompletionItemKind.Variable,
+              insertText: abi.name,
+              range: range,
+              detail: `ABI: ${abi.name}`,
+              documentation: abi.description || `${abi.abi.length} functions`,
+            });
+          }
+        });
+
+        return { suggestions };
+      },
+    });
+
     // Configure additional editor features for better auto-import experience
     // Note: setIncludePackageJsonAutoImports is not available in this Monaco version
 
@@ -417,10 +464,11 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
   }, []);
 
   return (
-    <div className="h-full border border-gray-300 rounded-lg overflow-hidden">
+    <div className="h-full overflow-hidden">
       <Editor
         height={height || "100%"}
         language="typescript"
+        path="file:///playground/main.ts"
         value={value}
         onChange={onChange}
         onMount={handleEditorDidMount}
@@ -442,7 +490,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
           quickSuggestions: {
             other: true,
             comments: false,
-            strings: false,
+            strings: true,
           },
           parameterHints: {
             enabled: true,

@@ -3,6 +3,7 @@ import { transpileCode } from "../lib/esbuild";
 import CodeEditor from "./CodeEditor";
 import ConsolePanel from "./ConsolePanel";
 import { Play, Square, RotateCcw } from "lucide-react";
+import { abiDb } from "@/lib/abiDatabase";
 
 export interface LogEntry {
   key: string;
@@ -12,6 +13,10 @@ export interface LogEntry {
   // For console logs
   formatted?: string;
   args?: unknown[];
+}
+
+interface PlaygroundProps {
+  abiRefreshKey?: number;
 }
 
 const DEFAULT_CODE = `import { createPublicClient, http } from 'viem';
@@ -33,7 +38,7 @@ console.log('Chain ID:', chainId);
 console.log('Gas Price:', gasPrice);
 `;
 
-const Playground: React.FC = () => {
+const Playground: React.FC<PlaygroundProps> = ({ abiRefreshKey = 0 }) => {
   const VERBOSE_LOGS = false;
   const [code, setCode] = useState(DEFAULT_CODE);
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -132,6 +137,13 @@ const Playground: React.FC = () => {
 
       // Transpile user code (TypeScript) to JavaScript via esbuild
       const compiledUserCode = await transpileCode(transformedCode);
+
+      // Get ABIs for runtime injection
+      const globalABIs: Record<string, any[]> = {};
+      const storedABIs = await abiDb.abis.toArray();
+      storedABIs.forEach((abi) => {
+        globalABIs[abi.name] = abi.abi;
+      });
 
       // Create the runtime prelude code (no viem wait needed when bundling)
       const runtimeCode = `
@@ -261,6 +273,18 @@ const Playground: React.FC = () => {
             prelude.type = "text/javascript";
             prelude.textContent = runtimeCode;
             iframeDoc.body.appendChild(prelude);
+
+            // Inject global ABIs before user code
+            const globalABIsScript = iframeDoc.createElement("script");
+            globalABIsScript.type = "text/javascript";
+            globalABIsScript.textContent = `
+              window.__globalABIs = ${JSON.stringify(globalABIs)};
+              // Make ABIs available globally
+              Object.entries(window.__globalABIs).forEach(([name, abi]) => {
+                window[name] = abi;
+              });
+            `;
+            iframeDoc.body.appendChild(globalABIsScript);
 
             // Inject user bundle as ESM (supports top-level await). It will execute immediately.
             const userModule = iframeDoc.createElement("script");
@@ -426,8 +450,9 @@ const Playground: React.FC = () => {
           <div className="flex-shrink-0 p-2 bg-gray-100 border-b border-gray-200">
             <span className="text-sm font-medium text-gray-700">Editor</span>
           </div>
-          <div className="flex-1 overflow-hidden p-4">
+          <div className="flex-1 overflow-hidden">
             <CodeEditor
+              key={abiRefreshKey}
               value={code}
               onChange={(value) => setCode(value || "")}
               height="100%"

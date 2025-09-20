@@ -206,7 +206,7 @@
 - **Sandbox**: iframe for safe execution
 - **State/UI**: Zustand or Redux (lightweight state mgmt)
 
-We also use bun, shadcn ui components, and tailwindcss.
+We also use bun, shadcn ui components, and tailwindcss. Never start the dev server yourself. Run bun run build if you want to see if the project builds.
 
 ---
 
